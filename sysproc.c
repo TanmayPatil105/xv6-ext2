@@ -89,3 +89,9 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+int
+sys_mount(void){
+  cprintf("Dummy mount\n");
+  return 0;
+}

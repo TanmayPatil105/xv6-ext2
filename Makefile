@@ -181,6 +181,7 @@ UPROGS=\
 	_usertests\
 	_wc\
 	_zombie\
+	_mounttest\
 
 ext2.img:
 	dd if=/dev/zero of=ext2.img count=20000

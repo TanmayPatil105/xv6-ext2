@@ -23,6 +23,7 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int mount(char* path, int partition_number);
 
 // ulib.c
 int stat(const char*, struct stat*);
