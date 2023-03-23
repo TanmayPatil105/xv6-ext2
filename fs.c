@@ -668,3 +668,18 @@ nameiparent(char *path, char *name)
 {
   return namex(path, 1, name);
 }
+
+int 
+mount(char *path, int partition_number){
+   struct inode *ip;
+   if(partition_number < 0 || partition_number > 3){
+      cprintf("kernel: partition_number invalid\n");
+      return -1;
+   }
+   if((ip = namei(path)) == 0){
+      cprintf("kernel: path not found\n");
+      return -1;
+   }
+
+   return 0;
+}

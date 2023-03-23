@@ -92,6 +92,12 @@ sys_uptime(void)
 
 int
 sys_mount(void){
-  cprintf("Dummy mount\n");
-  return 0;
+  char *path;
+  // partition number
+  int part;
+
+  if(argstr(0, &path) < 0 || argint(1, &part) < 0) 
+     return -1;
+
+  return mount(path, part);
 }
