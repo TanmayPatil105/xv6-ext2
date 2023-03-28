@@ -96,7 +96,7 @@ sys_mount(void){
   // partition number
   int part;
 
-  if(argstr(0, &path) < 0 || argint(1, &part) < 0) 
+  if(argstr(0, &path) < 0 || argint(1, &part) < 0)
      return -1;
 
   return mount(path, part);
