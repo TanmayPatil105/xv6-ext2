@@ -100,7 +100,7 @@ idestart(struct buf *b)
   int write_cmd = (sector_per_block == 1) ? IDE_CMD_WRITE : IDE_CMD_WRMUL;
 
   if (sector_per_block > 7) panic("idestart");
-  
+
   idewait(0, portno);
   if (b->dev <= 1) {
      outb(0x3f6, 0); // generate interrupt to device 0 and 1
@@ -113,7 +113,7 @@ idestart(struct buf *b)
   outb(portno + 4, (sector >> 8) & 0xff);
   outb(portno + 5, (sector >> 16) & 0xff);
   outb(portno + 6, 0xe0 | ((b->dev&1)<<4) | ((sector>>24)&0x0f));
- 
+  
   if(b->flags & B_DIRTY){
     outb(portno + 7, write_cmd);
     outsl(portno, b->data, BSIZE/4);

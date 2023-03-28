@@ -669,7 +669,7 @@ nameiparent(char *path, char *name)
   return namex(path, 1, name);
 }
 
-int 
+int
 mount(char *path, int partition_number){
    struct inode *ip;
    if(partition_number < 0 || partition_number > 3){
