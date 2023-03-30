@@ -6,6 +6,9 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 struct {
   struct spinlock lock;
@@ -243,7 +246,7 @@ exit(void)
   }
 
   begin_op();
-  iput(curproc->cwd);
+  curproc->cwd->iops->iput(curproc->cwd);
   end_op();
   curproc->cwd = 0;
 
@@ -405,7 +408,7 @@ forkret(void)
     // of a regular process (e.g., they call sleep), and thus cannot
     // be run from main().
     first = 0;
-    iinit(ROOTDEV);
+    xv6fs_iinit(ROOTDEV);
     initlog(ROOTDEV);
   }
 

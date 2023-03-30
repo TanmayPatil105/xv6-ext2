@@ -22,14 +22,30 @@
 #include "file.h"
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
-static void itrunc(struct inode*);
+static void xv6fs_itrunc(struct inode*);
 // there should be one superblock per disk device, but we run with
 // only one device
 struct superblock sb; 
 
+extern struct inode_operations ext2fs_inode_ops;
+struct inode_operations xv6fs_inode_ops = {
+	xv6fs_dirlink,
+	xv6fs_dirlookup,
+	xv6fs_ialloc,
+	xv6fs_iinit,
+	xv6fs_ilock,
+	xv6fs_iput,
+	xv6fs_iunlock,
+	xv6fs_iunlockput,
+	xv6fs_iupdate,
+	xv6fs_readi,
+	xv6fs_stati,
+	xv6fs_writei,
+};
+
 // Read the super block.
 void
-readsb(int dev, struct superblock *sb)
+xv6fs_readsb(int dev, struct superblock *sb)
 {
   struct buf *bp;
 
@@ -169,7 +185,7 @@ struct {
 } icache;
 
 void
-iinit(int dev)
+xv6fs_iinit(int dev)
 {
   int i = 0;
   
@@ -178,7 +194,7 @@ iinit(int dev)
     initsleeplock(&icache.inode[i].lock, "inode");
   }
 
-  readsb(dev, &sb);
+  xv6fs_readsb(dev, &sb);
   cprintf("sb: size %d nblocks %d ninodes %d nlog %d logstart %d\
  inodestart %d bmap start %d\n", sb.size, sb.nblocks,
           sb.ninodes, sb.nlog, sb.logstart, sb.inodestart,
@@ -192,7 +208,7 @@ static struct inode* iget(uint dev, uint inum);
 // Mark it as allocated by  giving it type type.
 // Returns an unlocked but allocated and referenced inode.
 struct inode*
-ialloc(uint dev, short type)
+xv6fs_ialloc(uint dev, short type)
 {
   int inum;
   struct buf *bp;
@@ -218,7 +234,7 @@ ialloc(uint dev, short type)
 // that lives on disk, since i-node cache is write-through.
 // Caller must hold ip->lock.
 void
-iupdate(struct inode *ip)
+xv6fs_iupdate(struct inode *ip)
 {
   struct buf *bp;
   struct dinode *dip;
@@ -266,6 +282,11 @@ iget(uint dev, uint inum)
   ip->inum = inum;
   ip->ref = 1;
   ip->valid = 0;
+  if (dev == ROOTDEV){
+		ip->iops = &xv6fs_inode_ops;
+	} else {
+		//ip->iops = &ext2fs_inode_ops;
+	}
   release(&icache.lock);
 
   return ip;
@@ -285,7 +306,7 @@ idup(struct inode *ip)
 // Lock the given inode.
 // Reads the inode from disk if necessary.
 void
-ilock(struct inode *ip)
+xv6fs_ilock(struct inode *ip)
 {
   struct buf *bp;
   struct dinode *dip;
@@ -313,7 +334,7 @@ ilock(struct inode *ip)
 
 // Unlock the given inode.
 void
-iunlock(struct inode *ip)
+xv6fs_iunlock(struct inode *ip)
 {
   if(ip == 0 || !holdingsleep(&ip->lock) || ip->ref < 1)
     panic("iunlock");
@@ -329,7 +350,7 @@ iunlock(struct inode *ip)
 // All calls to iput() must be inside a transaction in
 // case it has to free the inode.
 void
-iput(struct inode *ip)
+xv6fs_iput(struct inode *ip)
 {
   acquiresleep(&ip->lock);
   if(ip->valid && ip->nlink == 0){
@@ -338,9 +359,9 @@ iput(struct inode *ip)
     release(&icache.lock);
     if(r == 1){
       // inode has no links and no other references: truncate and free.
-      itrunc(ip);
+      xv6fs_itrunc(ip);
       ip->type = 0;
-      iupdate(ip);
+      ip->iops->iupdate(ip);
       ip->valid = 0;
     }
   }
@@ -353,10 +374,10 @@ iput(struct inode *ip)
 
 // Common idiom: unlock, then put.
 void
-iunlockput(struct inode *ip)
+xv6fs_iunlockput(struct inode *ip)
 {
-  iunlock(ip);
-  iput(ip);
+  ip->iops->iunlock(ip);
+  ip->iops->iput(ip);
 }
 
 //PAGEBREAK!
@@ -405,7 +426,7 @@ bmap(struct inode *ip, uint bn)
 // and has no in-memory reference to it (is
 // not an open file or current directory).
 static void
-itrunc(struct inode *ip)
+xv6fs_itrunc(struct inode *ip)
 {
   int i, j;
   struct buf *bp;
@@ -431,13 +452,13 @@ itrunc(struct inode *ip)
   }
 
   ip->size = 0;
-  iupdate(ip);
+  ip->iops->iupdate(ip);
 }
 
 // Copy stat information from inode.
 // Caller must hold ip->lock.
 void
-stati(struct inode *ip, struct stat *st)
+xv6fs_stati(struct inode *ip, struct stat *st)
 {
   st->dev = ip->dev;
   st->ino = ip->inum;
@@ -450,7 +471,7 @@ stati(struct inode *ip, struct stat *st)
 // Read data from inode.
 // Caller must hold ip->lock.
 int
-readi(struct inode *ip, char *dst, uint off, uint n)
+xv6fs_readi(struct inode *ip, char *dst, uint off, uint n)
 {
   uint tot, m;
   struct buf *bp;
@@ -479,7 +500,7 @@ readi(struct inode *ip, char *dst, uint off, uint n)
 // Write data to inode.
 // Caller must hold ip->lock.
 int
-writei(struct inode *ip, char *src, uint off, uint n)
+xv6fs_writei(struct inode *ip, char *src, uint off, uint n)
 {
   uint tot, m;
   struct buf *bp;
@@ -505,7 +526,7 @@ writei(struct inode *ip, char *src, uint off, uint n)
 
   if(n > 0 && off > ip->size){
     ip->size = off;
-    iupdate(ip);
+    ip->iops->iupdate(ip);
   }
   return n;
 }
@@ -522,7 +543,7 @@ namecmp(const char *s, const char *t)
 // Look for a directory entry in a directory.
 // If found, set *poff to byte offset of entry.
 struct inode*
-dirlookup(struct inode *dp, char *name, uint *poff)
+xv6fs_dirlookup(struct inode *dp, char *name, uint *poff)
 {
   uint off, inum;
   struct dirent de;
@@ -531,7 +552,7 @@ dirlookup(struct inode *dp, char *name, uint *poff)
     panic("dirlookup not DIR");
 
   for(off = 0; off < dp->size; off += sizeof(de)){
-    if(readi(dp, (char*)&de, off, sizeof(de)) != sizeof(de))
+    if(dp->iops->readi(dp, (char*)&de, off, sizeof(de)) != sizeof(de))
       panic("dirlookup read");
     if(de.inum == 0)
       continue;
@@ -549,21 +570,21 @@ dirlookup(struct inode *dp, char *name, uint *poff)
 
 // Write a new directory entry (name, inum) into the directory dp.
 int
-dirlink(struct inode *dp, char *name, uint inum)
+xv6fs_dirlink(struct inode *dp, char *name, uint inum)
 {
   int off;
   struct dirent de;
   struct inode *ip;
 
   // Check that name is not present.
-  if((ip = dirlookup(dp, name, 0)) != 0){
-    iput(ip);
+  if((ip = dp->iops->dirlookup(dp, name, 0)) != 0){
+    ip->iops->iput(ip);
     return -1;
   }
 
   // Look for an empty dirent.
   for(off = 0; off < dp->size; off += sizeof(de)){
-    if(readi(dp, (char*)&de, off, sizeof(de)) != sizeof(de))
+    if(dp->iops->readi(dp, (char*)&de, off, sizeof(de)) != sizeof(de))
       panic("dirlink read");
     if(de.inum == 0)
       break;
@@ -571,7 +592,7 @@ dirlink(struct inode *dp, char *name, uint inum)
 
   strncpy(de.name, name, DIRSIZ);
   de.inum = inum;
-  if(writei(dp, (char*)&de, off, sizeof(de)) != sizeof(de))
+  if(dp->iops->writei(dp, (char*)&de, off, sizeof(de)) != sizeof(de))
     panic("dirlink");
 
   return 0;
@@ -632,25 +653,25 @@ namex(char *path, int nameiparent, char *name)
     ip = idup(myproc()->cwd);
 
   while((path = skipelem(path, name)) != 0){
-    ilock(ip);
+    ip->iops->ilock(ip);
     if(ip->type != T_DIR){
-      iunlockput(ip);
+      ip->iops->iunlockput(ip);
       return 0;
     }
     if(nameiparent && *path == '\0'){
       // Stop one level early.
-      iunlock(ip);
+      ip->iops->iunlock(ip);
       return ip;
     }
-    if((next = dirlookup(ip, name, 0)) == 0){
-      iunlockput(ip);
+    if((next = ip->iops->dirlookup(ip, name, 0)) == 0){
+      ip->iops->iunlockput(ip);
       return 0;
     }
-    iunlockput(ip);
+    ip->iops->iunlockput(ip);
     ip = next;
   }
   if(nameiparent){
-    iput(ip);
+    ip->iops->iput(ip);
     return 0;
   }
   return ip;
