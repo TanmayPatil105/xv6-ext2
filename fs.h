@@ -3,6 +3,7 @@
 
 
 #define ROOTINO 1  // root i-number
+#define EXT2INO 2  // ext2 i-number
 #define BSIZE 512  // block size
 
 // Disk layout:

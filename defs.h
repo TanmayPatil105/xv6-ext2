@@ -52,7 +52,21 @@ struct inode*   nameiparent(char*, char*);
 int             xv6fs_readi(struct inode*, char*, uint, uint);
 void            xv6fs_stati(struct inode*, struct stat*);
 int             xv6fs_writei(struct inode*, char*, uint, uint);
-int		mount(char *path, int partition_number);
+
+// ext2fs.c
+void		ext2fs_readsb(int dev, struct superblock *sb);
+int             ext2fs_dirlink(struct inode*, char*, uint);
+struct inode*   ext2fs_dirlookup(struct inode*, char*, uint*);
+struct inode*   ext2fs_ialloc(uint, short);
+void            ext2fs_iinit(int dev);
+void            ext2fs_ilock(struct inode*);
+void            ext2fs_iput(struct inode*);
+void            ext2fs_iunlock(struct inode*);
+void            ext2fs_iunlockput(struct inode*);
+void            ext2fs_iupdate(struct inode*);
+int             ext2fs_readi(struct inode*, char*, uint, uint);
+void            ext2fs_stati(struct inode*, struct stat*);
+int             ext2fs_writei(struct inode*, char*, uint, uint);
 
 // ide.c
 void            ideinit(void);
