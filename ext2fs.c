@@ -26,16 +26,25 @@ struct inode_operations ext2fs_inode_ops = {
         ext2fs_writei,
 };
 
+struct ext2_super_block ext2_sb;
+
 void
-ext2fs_readsb(int dev, struct superblock *sb)
+ext2fs_readsb(int dev, struct ext2_super_block *ext2_sb)
 {
-  return;
+  struct buf *bp;
+  bp = bread(dev, 0);
+  memmove(ext2_sb, bp->data + EXT2_BOOT_BLOCK_SIZE, sizeof(*ext2_sb));
+  brelse(bp);
 }
 
 void
 ext2fs_iinit(int dev)
 {
-  return;
+  ext2fs_readsb(dev, &ext2_sb);
+  cprintf("ext2_sb: magic number %d size %d nblocks %d ninodes %d\
+  inodes per group %d inode size %d\n", ext2_sb.s_magic, EXT2_BOOT_BLOCK_SIZE,
+  ext2_sb.s_blocks_count, ext2_sb.s_inodes_count, ext2_sb.s_inodes_per_group,
+  ext2_sb.s_inode_size);
 }
 
 struct inode*
