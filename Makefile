@@ -2,6 +2,7 @@ OBJS = \
 	bio.o\
 	console.o\
 	exec.o\
+	ext2fs.o\
 	file.o\
 	fs.o\
 	ide.o\
@@ -181,7 +182,7 @@ UPROGS=\
 	_usertests\
 	_wc\
 	_zombie\
-	_mounttest\
+	_ext2fstest\
 
 ext2.img:
 	dd if=/dev/zero of=ext2.img count=20000

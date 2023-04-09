@@ -20,6 +20,7 @@
 #include "fs.h"
 #include "buf.h"
 #include "file.h"
+#include "ext2fs.h"
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 static void xv6fs_itrunc(struct inode*);
@@ -27,7 +28,6 @@ static void xv6fs_itrunc(struct inode*);
 // only one device
 struct superblock sb; 
 
-extern struct inode_operations ext2fs_inode_ops;
 struct inode_operations xv6fs_inode_ops = {
 	xv6fs_dirlink,
 	xv6fs_dirlookup,
@@ -282,11 +282,10 @@ iget(uint dev, uint inum)
   ip->inum = inum;
   ip->ref = 1;
   ip->valid = 0;
-  if (dev == ROOTDEV){
-		ip->iops = &xv6fs_inode_ops;
-	} else {
-		//ip->iops = &ext2fs_inode_ops;
-	}
+  if (dev == ROOTDEV)
+    ip->iops = &xv6fs_inode_ops;
+  else
+    ip->iops = &ext2fs_inode_ops;
   release(&icache.lock);
 
   return ip;
@@ -646,8 +645,11 @@ static struct inode*
 namex(char *path, int nameiparent, char *name)
 {
   struct inode *ip, *next;
-
-  if(*path == '/')
+  if(strncmp(path, "/mnt",4) == 0){
+    ip = iget(EXT2DEV, EXT2INO);
+    path += 4;
+  }
+  else if(*path == '/')
     ip = iget(ROOTDEV, ROOTINO);
   else
     ip = idup(myproc()->cwd);
@@ -690,17 +692,3 @@ nameiparent(char *path, char *name)
   return namex(path, 1, name);
 }
 
-int
-mount(char *path, int partition_number){
-   struct inode *ip;
-   if(partition_number < 0 || partition_number > 3){
-      cprintf("kernel: partition_number invalid\n");
-      return -1;
-   }
-   if((ip = namei(path)) == 0){
-      cprintf("kernel: path not found\n");
-      return -1;
-   }
-
-   return 0;
-}
