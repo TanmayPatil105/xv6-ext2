@@ -1,8 +1,5 @@
 extern struct inode_operations ext2fs_inode_ops;
 
-// ext2 block size
-#define EXT2_BOOT_BLOCK_SIZE                 1024
-
 /*
  * Constants relative to the data blocks
  */

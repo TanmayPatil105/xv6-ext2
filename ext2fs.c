@@ -32,8 +32,8 @@ void
 ext2fs_readsb(int dev, struct ext2_super_block *ext2_sb)
 {
   struct buf *bp;
-  bp = bread(dev, 0);
-  memmove(ext2_sb, bp->data + EXT2_BOOT_BLOCK_SIZE, sizeof(*ext2_sb));
+  bp = bread(dev, 2);
+  memmove(ext2_sb, bp->data, sizeof(*ext2_sb));
   brelse(bp);
 }
 
@@ -41,8 +41,8 @@ void
 ext2fs_iinit(int dev)
 {
   ext2fs_readsb(dev, &ext2_sb);
-  cprintf("ext2_sb: magic number %d size %d nblocks %d ninodes %d\
-  inodes per group %d inode size %d\n", ext2_sb.s_magic, EXT2_BOOT_BLOCK_SIZE,
+  cprintf("ext2_sb: magic_number %x size %d nblocks %d ninodes %d \
+inodes_per_group %d inode_size %d\n", ext2_sb.s_magic, 1024<<ext2_sb.s_log_block_size,
   ext2_sb.s_blocks_count, ext2_sb.s_inodes_count, ext2_sb.s_inodes_per_group,
   ext2_sb.s_inode_size);
 }
