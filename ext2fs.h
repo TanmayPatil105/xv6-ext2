@@ -12,6 +12,12 @@ extern struct inode_operations ext2fs_inode_ops;
 // for directory entry
 #define EXT2_NAME_LEN 255
 
+struct ext2fs_addrs {
+  uint busy;
+  uint addrs[EXT2_N_BLOCKS];
+};
+extern struct ext2fs_addrs ext2fs_addrs[NINODE];
+
 struct ext2_super_block {
 	uint	s_inodes_count;		/* Inodes count */
 	uint	s_blocks_count;		/* Blocks count */

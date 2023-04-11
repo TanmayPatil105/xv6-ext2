@@ -26,6 +26,7 @@ struct inode_operations ext2fs_inode_ops = {
         ext2fs_writei,
 };
 
+struct ext2fs_addrs ext2fs_addrs[NINODE];
 struct ext2_super_block ext2_sb;
 
 void

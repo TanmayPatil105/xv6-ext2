@@ -43,6 +43,8 @@ struct inode_operations xv6fs_inode_ops = {
 	xv6fs_writei,
 };
 
+struct xv6fs_addrs xv6fs_addrs[NINODE];
+
 // Read the super block.
 void
 xv6fs_readsb(int dev, struct superblock *sb)
@@ -238,6 +240,8 @@ xv6fs_iupdate(struct inode *ip)
 {
   struct buf *bp;
   struct dinode *dip;
+  struct xv6fs_addrs *ad;
+  ad = (struct xv6fs_addrs *)ip->addrs;
 
   bp = bread(ip->dev, IBLOCK(ip->inum, sb));
   dip = (struct dinode*)bp->data + ip->inum%IPB;
@@ -246,7 +250,7 @@ xv6fs_iupdate(struct inode *ip)
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
   dip->size = ip->size;
-  memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
+  memmove(dip->addrs, ad->addrs, sizeof(ad->addrs));
   log_write(bp);
   brelse(bp);
 }
@@ -258,6 +262,7 @@ static struct inode*
 iget(uint dev, uint inum)
 {
   struct inode *ip, *empty;
+  int i, j;
 
   acquire(&icache.lock);
 
@@ -273,6 +278,15 @@ iget(uint dev, uint inum)
       empty = ip;
   }
 
+  for(i = 0; i < NINODE; i++){
+    if (xv6fs_addrs[i].busy == 0)
+      break;
+  }
+  for(j = 0; j < NINODE; j++){
+    if (ext2fs_addrs[i].busy == 0)
+      break;
+  }
+
   // Recycle an inode cache entry.
   if(empty == 0)
     panic("iget: no inodes");
@@ -282,10 +296,15 @@ iget(uint dev, uint inum)
   ip->inum = inum;
   ip->ref = 1;
   ip->valid = 0;
-  if (dev == ROOTDEV)
+  if (dev == ROOTDEV) {
     ip->iops = &xv6fs_inode_ops;
-  else
+    ip->addrs = (void *)&xv6fs_addrs[i];
+    xv6fs_addrs[i].busy = 1;
+  } else {
     ip->iops = &ext2fs_inode_ops;
+    ip->addrs = (void *)&ext2fs_addrs[j];
+    ext2fs_addrs[j].busy = 1;
+  }
   release(&icache.lock);
 
   return ip;
@@ -309,11 +328,13 @@ xv6fs_ilock(struct inode *ip)
 {
   struct buf *bp;
   struct dinode *dip;
+  struct xv6fs_addrs *ad;
 
   if(ip == 0 || ip->ref < 1)
     panic("ilock");
 
   acquiresleep(&ip->lock);
+  ad = (struct xv6fs_addrs *)ip->addrs;
 
   if(ip->valid == 0){
     bp = bread(ip->dev, IBLOCK(ip->inum, sb));
@@ -323,7 +344,7 @@ xv6fs_ilock(struct inode *ip)
     ip->minor = dip->minor;
     ip->nlink = dip->nlink;
     ip->size = dip->size;
-    memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
+    memmove(ad->addrs, dip->addrs, sizeof(ad->addrs));
     brelse(bp);
     ip->valid = 1;
     if(ip->type == 0)
@@ -351,7 +372,9 @@ xv6fs_iunlock(struct inode *ip)
 void
 xv6fs_iput(struct inode *ip)
 {
+  struct xv6fs_addrs *ad;
   acquiresleep(&ip->lock);
+  ad = (struct xv6fs_addrs *)ip->addrs;
   if(ip->valid && ip->nlink == 0){
     acquire(&icache.lock);
     int r = ip->ref;
@@ -362,12 +385,17 @@ xv6fs_iput(struct inode *ip)
       ip->type = 0;
       ip->iops->iupdate(ip);
       ip->valid = 0;
+      ip->addrs = 0;
     }
   }
   releasesleep(&ip->lock);
 
   acquire(&icache.lock);
   ip->ref--;
+  if (ip->ref == 0){
+    ad->busy = 0;
+    ip->addrs = 0;
+  }
   release(&icache.lock);
 }
 
@@ -394,18 +422,20 @@ bmap(struct inode *ip, uint bn)
 {
   uint addr, *a;
   struct buf *bp;
+  struct xv6fs_addrs *ad;
+  ad = (struct xv6fs_addrs *)ip->addrs;
 
   if(bn < NDIRECT){
-    if((addr = ip->addrs[bn]) == 0)
-      ip->addrs[bn] = addr = balloc(ip->dev);
+    if((addr = ad->addrs[bn]) == 0)
+      ad->addrs[bn] = addr = balloc(ip->dev);
     return addr;
   }
   bn -= NDIRECT;
 
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT]) == 0)
-      ip->addrs[NDIRECT] = addr = balloc(ip->dev);
+    if((addr = ad->addrs[NDIRECT]) == 0)
+      ad->addrs[NDIRECT] = addr = balloc(ip->dev);
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
     if((addr = a[bn]) == 0){
@@ -430,24 +460,26 @@ xv6fs_itrunc(struct inode *ip)
   int i, j;
   struct buf *bp;
   uint *a;
+  struct xv6fs_addrs *ad;
+  ad = (struct xv6fs_addrs *)ip->addrs;
 
   for(i = 0; i < NDIRECT; i++){
-    if(ip->addrs[i]){
-      bfree(ip->dev, ip->addrs[i]);
-      ip->addrs[i] = 0;
+    if(ad->addrs[i]){
+      bfree(ip->dev, ad->addrs[i]);
+      ad->addrs[i] = 0;
     }
   }
 
-  if(ip->addrs[NDIRECT]){
-    bp = bread(ip->dev, ip->addrs[NDIRECT]);
+  if(ad->addrs[NDIRECT]){
+    bp = bread(ip->dev, ad->addrs[NDIRECT]);
     a = (uint*)bp->data;
     for(j = 0; j < NINDIRECT; j++){
       if(a[j])
         bfree(ip->dev, a[j]);
     }
     brelse(bp);
-    bfree(ip->dev, ip->addrs[NDIRECT]);
-    ip->addrs[NDIRECT] = 0;
+    bfree(ip->dev, ad->addrs[NDIRECT]);
+    ad->addrs[NDIRECT] = 0;
   }
 
   ip->size = 0;

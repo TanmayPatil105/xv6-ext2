@@ -26,6 +26,11 @@ struct superblock {
 #define NINDIRECT (BSIZE / sizeof(uint))
 #define MAXFILE (NDIRECT + NINDIRECT)
 
+struct xv6fs_addrs {
+  uint busy;
+  uint addrs[NDIRECT + 1];
+};
+
 // On-disk inode structure
 struct dinode {
   short type;           // File type
