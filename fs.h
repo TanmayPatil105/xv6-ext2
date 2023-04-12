@@ -1,10 +1,9 @@
 // On-disk file system format.
 // Both the kernel and user programs use this header file.
 
-
 #define ROOTINO 1  // root i-number
 #define EXT2INO 2  // ext2 i-number
-#define BSIZE 512  // block size
+#define BSIZE 1024  // block size
 
 // Disk layout:
 // [ boot block | super block | log | inode blocks |

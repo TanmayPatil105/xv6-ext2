@@ -18,15 +18,22 @@
 #include "spinlock.h"
 #include "sleeplock.h"
 #include "fs.h"
+#include "ext2fs.h"
 #include "buf.h"
 #include "file.h"
-#include "ext2fs.h"
+#include "icache.h"
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
-static void xv6fs_itrunc(struct inode*);
+
+static void xv6fs_bzero(int dev, int bno);
+static uint xv6fs_balloc(uint dev);
+static void xv6fs_bfree(int dev, uint b);
+static uint xv6fs_bmap(struct inode *ip, uint bn);
+static void xv6fs_itrunc(struct inode *ip);
 // there should be one superblock per disk device, but we run with
 // only one device
-struct superblock sb; 
+struct superblock sb;
+struct icache icache;
 
 struct inode_operations xv6fs_inode_ops = {
 	xv6fs_dirlink,
@@ -180,11 +187,6 @@ xv6fs_bfree(int dev, uint b)
 // An ip->lock sleep-lock protects all ip-> fields other than ref,
 // dev, and inum.  One must hold ip->lock in order to
 // read or write that inode's ip->valid, ip->size, ip->type, &c.
-
-struct {
-  struct spinlock lock;
-  struct inode inode[NINODE];
-} icache;
 
 void
 xv6fs_iinit(int dev)
@@ -418,7 +420,7 @@ xv6fs_iunlockput(struct inode *ip)
 // Return the disk block address of the nth block in inode ip.
 // If there is no such block, bmap allocates one.
 static uint
-bmap(struct inode *ip, uint bn)
+xv6fs_bmap(struct inode *ip, uint bn)
 {
   uint addr, *a;
   struct buf *bp;
@@ -519,7 +521,7 @@ xv6fs_readi(struct inode *ip, char *dst, uint off, uint n)
     n = ip->size - off;
 
   for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
+    bp = bread(ip->dev, xv6fs_bmap(ip, off/BSIZE));
     m = min(n - tot, BSIZE - off%BSIZE);
     memmove(dst, bp->data + off%BSIZE, m);
     brelse(bp);
@@ -548,7 +550,7 @@ xv6fs_writei(struct inode *ip, char *src, uint off, uint n)
     return -1;
 
   for(tot=0; tot<n; tot+=m, off+=m, src+=m){
-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
+    bp = bread(ip->dev, xv6fs_bmap(ip, off/BSIZE));
     m = min(n - tot, BSIZE - off%BSIZE);
     memmove(bp->data + off%BSIZE, src, m);
     log_write(bp);

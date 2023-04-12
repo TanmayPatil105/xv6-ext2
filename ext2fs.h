@@ -1,4 +1,5 @@
 extern struct inode_operations ext2fs_inode_ops;
+extern struct icache icache;
 
 /*
  * Constants relative to the data blocks
