@@ -58,7 +58,7 @@ xv6fs_readsb(int dev, struct superblock *sb)
 
 // Zero a block.
 static void
-bzero(int dev, int bno)
+xv6fs_bzero(int dev, int bno)
 {
   struct buf *bp;
 
@@ -72,7 +72,7 @@ bzero(int dev, int bno)
 
 // Allocate a zeroed disk block.
 static uint
-balloc(uint dev)
+xv6fs_balloc(uint dev)
 {
   int b, bi, m;
   struct buf *bp;
@@ -86,7 +86,7 @@ balloc(uint dev)
         bp->data[bi/8] |= m;  // Mark block in use.
         log_write(bp);
         brelse(bp);
-        bzero(dev, b + bi);
+        xv6fs_bzero(dev, b + bi);
         return b + bi;
       }
     }
@@ -97,7 +97,7 @@ balloc(uint dev)
 
 // Free a disk block.
 static void
-bfree(int dev, uint b)
+xv6fs_bfree(int dev, uint b)
 {
   struct buf *bp;
   int bi, m;
@@ -427,7 +427,7 @@ bmap(struct inode *ip, uint bn)
 
   if(bn < NDIRECT){
     if((addr = ad->addrs[bn]) == 0)
-      ad->addrs[bn] = addr = balloc(ip->dev);
+      ad->addrs[bn] = addr = xv6fs_balloc(ip->dev);
     return addr;
   }
   bn -= NDIRECT;
@@ -435,11 +435,11 @@ bmap(struct inode *ip, uint bn)
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
     if((addr = ad->addrs[NDIRECT]) == 0)
-      ad->addrs[NDIRECT] = addr = balloc(ip->dev);
+      ad->addrs[NDIRECT] = addr = xv6fs_balloc(ip->dev);
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
     if((addr = a[bn]) == 0){
-      a[bn] = addr = balloc(ip->dev);
+      a[bn] = addr = xv6fs_balloc(ip->dev);
       log_write(bp);
     }
     brelse(bp);
@@ -465,7 +465,7 @@ xv6fs_itrunc(struct inode *ip)
 
   for(i = 0; i < NDIRECT; i++){
     if(ad->addrs[i]){
-      bfree(ip->dev, ad->addrs[i]);
+      xv6fs_bfree(ip->dev, ad->addrs[i]);
       ad->addrs[i] = 0;
     }
   }
@@ -475,10 +475,10 @@ xv6fs_itrunc(struct inode *ip)
     a = (uint*)bp->data;
     for(j = 0; j < NINDIRECT; j++){
       if(a[j])
-        bfree(ip->dev, a[j]);
+        xv6fs_bfree(ip->dev, a[j]);
     }
     brelse(bp);
-    bfree(ip->dev, ad->addrs[NDIRECT]);
+    xv6fs_bfree(ip->dev, ad->addrs[NDIRECT]);
     ad->addrs[NDIRECT] = 0;
   }
 
