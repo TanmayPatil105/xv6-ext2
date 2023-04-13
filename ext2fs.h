@@ -1,6 +1,12 @@
 extern struct inode_operations ext2fs_inode_ops;
 extern struct icache icache;
 
+// Block size for ext2
+#define EXT2_BSIZE 1024
+
+#define GET_GROUP_NO(inum, ext2_sb) 	((inum - 1) / ext2_sb.s_inodes_per_group)
+#define GET_INODE_INDEX(inum, ext2_sb) 	((inum - 1) % ext2_sb.s_inodes_per_group)
+
 /*
  * Constants relative to the data blocks
  */

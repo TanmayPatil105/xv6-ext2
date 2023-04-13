@@ -12,8 +12,6 @@
 #include "file.h"
 #include "icache.h"
 
-#define min(a,b) ((a) < (b) ? (a) : (b))
-
 struct inode_operations ext2fs_inode_ops = {
         ext2fs_dirlink,
         ext2fs_dirlookup,
@@ -62,7 +60,29 @@ ext2fs_bzero(int dev, int bno)
 static uint
 ext2fs_balloc(uint dev, uint inum)
 {
+  /*
+   * Calculate the group number of the inode
+   * Read the block bitmap
+   * Find the block number of the free block
+   * Write to the block bitmap that it is no longer free
+   * Write zero to that block
+   */
+  int bno;
+  struct ext2_group_desc bgdesc;
+  struct buf *bp1;
+  bno = GET_GROUP_NO(inum, ext2_sb);
+  // iindex = GET_INODE_INDEX(inum, ext2_sb);
+  bp1 = bread(dev, 2);
+  memmove(&bgdesc, bp1->data + bno * sizeof(bgdesc), sizeof(bgdesc));
+  brelse(bp1);
+  // bp2 = bread(dev, bgdesc.bg_block_bitmap);
+  // iterate through bp->data to get the first free block
+  // then bzero the free block
   ext2fs_bzero(dev, inum);
+  /*
+   * Release the buffer
+   * Return the block number of the allocated block
+   */
   return 0;
 }
 
@@ -172,6 +192,14 @@ static uint
 ext2fs_bmap(struct inode *ip, uint bn)
 {
   ext2fs_balloc(ip->dev, ip->inum);
+  /*
+   * EXT2BSIZE -> 1024
+   * If < EXT2_NDIR_BLOCKS then it is directly mapped, allocate and return
+   * If < 128 (Indirect blocks) then need to allocate using indirect block
+   * If < 128*128 (Double indirect) ...
+   * If < 128*128*128 (Triple indirect) ...
+   * Else panic()
+  */
   return 0;
 }
 
@@ -190,59 +218,14 @@ ext2fs_itrunc(struct inode *ip)
 int
 ext2fs_readi(struct inode *ip, char *dst, uint off, uint n)
 {
-  uint tot, m;
-  struct buf *bp;
-
-  if(ip->type == T_DEV){
-    if(ip->major < 0 || ip->major >= NDEV || !devsw[ip->major].read)
-      return -1;
-    return devsw[ip->major].read(ip, dst, n);
-  }
-
-  if(off > ip->size || off + n < off)
-    return -1;
-  if(off + n > ip->size)
-    n = ip->size - off;
-
-  for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
-    bp = bread(ip->dev, ext2fs_bmap(ip, off/BSIZE));
-    m = min(n - tot, BSIZE - off%BSIZE);
-    memmove(dst, bp->data + off%BSIZE, m);
-    brelse(bp);
-  }
-  return n;
+  return 0;
 }
 
 int
 ext2fs_writei(struct inode *ip, char *src, uint off, uint n)
 {
-  uint tot, m;
-  struct buf *bp;
-
-  if(ip->type == T_DEV){
-    if(ip->major < 0 || ip->major >= NDEV || !devsw[ip->major].write)
-      return -1;
-    return devsw[ip->major].write(ip, src, n);
-  }
-
-  if(off > ip->size || off + n < off)
-    return -1;
-  if(off + n > MAXFILE*BSIZE)
-    return -1;
-
-  for(tot=0; tot<n; tot+=m, off+=m, src+=m){
-    bp = bread(ip->dev, ext2fs_bmap(ip, off/BSIZE));
-    m = min(n - tot, BSIZE - off%BSIZE);
-    memmove(bp->data + off%BSIZE, src, m);
-    log_write(bp);
-    brelse(bp);
-  }
-
-  if(n > 0 && off > ip->size){
-    ip->size = off;
-    ip->iops->iupdate(ip);
-  }
-  return n;
+  ext2fs_bmap(ip, 0);
+  return 0;
 }
 
 struct inode*

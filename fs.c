@@ -725,4 +725,3 @@ nameiparent(char *path, char *name)
 {
   return namex(path, 1, name);
 }
-
