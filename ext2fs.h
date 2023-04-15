@@ -16,6 +16,11 @@ extern struct icache icache;
 #define	EXT2_TIND_BLOCK			(EXT2_DIND_BLOCK + 1)
 #define	EXT2_N_BLOCKS			(EXT2_TIND_BLOCK + 1)
 
+// Block sizes
+#define EXT2_INDIRECT                   (EXT2_BSIZE / sizeof(uint))
+#define EXT2_DINDIRECT                  (EXT2_BSIZE / sizeof(uint))*EXT2_INDIRECT
+#define EXT2_TINDIRECT                  (EXT2_BSIZE / sizeof(uint))*EXT2_DINDIRECT
+
 // for directory entry
 #define EXT2_NAME_LEN 255
 

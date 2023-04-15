@@ -44,6 +44,7 @@ struct inode*   idup(struct inode*);
 void            xv6fs_iinit(int dev);
 void            xv6fs_ilock(struct inode*);
 void            xv6fs_iput(struct inode*);
+struct inode*   iget(uint, uint);
 void            xv6fs_iunlock(struct inode*);
 void            xv6fs_iunlockput(struct inode*);
 void            xv6fs_iupdate(struct inode*);

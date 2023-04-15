@@ -27,6 +27,8 @@ struct inode_operations ext2fs_inode_ops = {
         ext2fs_writei,
 };
 
+#define min(a,b) ((a) < (b) ? (a) : (b))
+
 static void ext2fs_bzero(int dev, int bno);
 static uint ext2fs_balloc(uint dev, uint inum);
 static void ext2fs_bfree(int dev, uint b);
@@ -56,41 +58,73 @@ ext2fs_bzero(int dev, int bno)
   brelse(bp);
 }
 
+// check if a block is free and return it's bit number
+
+static uint
+ext2fs_free_block(char *bitmap)
+{
+  int i, mask;
+  for(i = 0; i < ext2_sb.s_blocks_per_group * 8; i++)
+  {
+    mask = 1 << (i % 8);
+    if ((bitmap[i / 8] & mask) == 0)
+    {
+      bitmap[i / 8] = bitmap[i / 8] | mask;
+      return i;
+    }
+  }
+  return -1;
+}
+
 // Allocate a zeroed disk block.
 static uint
 ext2fs_balloc(uint dev, uint inum)
 {
-  /*
-   * Calculate the group number of the inode
-   * Read the block bitmap
-   * Find the block number of the free block
-   * Write to the block bitmap that it is no longer free
-   * Write zero to that block
-   */
-  int bno;
+  int bno, fbit, zbno;
   struct ext2_group_desc bgdesc;
-  struct buf *bp1;
+  struct buf *bp1, *bp2;
+
   bno = GET_GROUP_NO(inum, ext2_sb);
-  // iindex = GET_INODE_INDEX(inum, ext2_sb);
   bp1 = bread(dev, 2);
   memmove(&bgdesc, bp1->data + bno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp1);
-  // bp2 = bread(dev, bgdesc.bg_block_bitmap);
-  // iterate through bp->data to get the first free block
-  // then bzero the free block
-  ext2fs_bzero(dev, inum);
-  /*
-   * Release the buffer
-   * Return the block number of the allocated block
-   */
-  return 0;
+  bp2 = bread(dev, bgdesc.bg_block_bitmap);
+
+  fbit = ext2fs_free_block((char *)bp2->data);
+  if (fbit > -1)
+  {
+    zbno = bgdesc.bg_block_bitmap + fbit;
+    bwrite(bp2);
+    ext2fs_bzero(dev, zbno);
+    brelse(bp2);
+    return zbno;
+  }
+  brelse(bp2);
+  panic("ext2_balloc: out of blocks\n");
 }
 
 // Free a disk block.
 static void
 ext2fs_bfree(int dev, uint b)
 {
-  return;
+  int bno, iindex, mask;
+  struct ext2_group_desc bgdesc;
+  struct buf *bp1, *bp2;
+
+  bno = GET_GROUP_NO(b, ext2_sb);
+  iindex = GET_INODE_INDEX(b, ext2_sb);
+  bp1 = bread(dev, 2);
+  memmove(&bgdesc, bp1->data + bno * sizeof(bgdesc), sizeof(bgdesc));
+  brelse(bp1);
+  bp2 = bread(dev, bgdesc.bg_block_bitmap);
+  iindex -= bgdesc.bg_block_bitmap;
+  mask = 1 << (iindex % 8);
+
+  if ((bp2->data[iindex / 8] & mask) == 0)
+    panic("ext2fs_bfree: block already free\n");
+  bp2->data[iindex / 8] = bp2->data[iindex / 8] & ~mask;
+  bwrite(bp2);
+  brelse(bp2);
 }
 
 void
@@ -130,6 +164,30 @@ ext2fs_iunlock(struct inode *ip)
   releasesleep(&ip->lock);
 }
 
+// Free a inode
+static void
+ext2fs_ifree(struct inode *ip)
+{
+  int bno, iindex, mask;
+  struct ext2_group_desc bgdesc;
+  struct buf *bp1, *bp2;
+
+  bno = GET_GROUP_NO(ip->inum, ext2_sb);
+  iindex = GET_INODE_INDEX(ip->inum, ext2_sb);
+  bp1 = bread(ip->dev, 2);
+  memmove(&bgdesc, bp1->data + bno * sizeof(bgdesc), sizeof(bgdesc));
+  brelse(bp1);
+  bp2 = bread(ip->dev, bgdesc.bg_block_bitmap);
+  iindex -= bgdesc.bg_block_bitmap;
+  mask = 1 << (iindex % 8);
+
+  if ((bp2->data[iindex / 8] & mask) == 0)
+    panic("ext2fs_ifree: inode already free\n");
+  bp2->data[iindex / 8] = bp2->data[iindex / 8] & ~mask;
+  bwrite(bp2);
+  brelse(bp2);
+}
+
 void
 ext2fs_iput(struct inode *ip)
 {
@@ -142,6 +200,7 @@ ext2fs_iput(struct inode *ip)
     release(&icache.lock);
     if(r == 1){
       // inode has no links and no other references: truncate and free.
+      ext2fs_ifree(ip);
       ext2fs_itrunc(ip);
       ip->type = 0;
       ip->iops->iupdate(ip);
@@ -188,10 +247,6 @@ ext2fs_stati(struct inode *ip, struct stat *st)
 
 // Return the disk block address of the nth block in inode ip.
 // If there is no such block, bmap allocates one.
-static uint
-ext2fs_bmap(struct inode *ip, uint bn)
-{
-  ext2fs_balloc(ip->dev, ip->inum);
   /*
    * EXT2BSIZE -> 1024
    * If < EXT2_NDIR_BLOCKS then it is directly mapped, allocate and return
@@ -200,7 +255,71 @@ ext2fs_bmap(struct inode *ip, uint bn)
    * If < 128*128*128 (Triple indirect) ...
    * Else panic()
   */
-  return 0;
+static uint
+ext2fs_bmap(struct inode *ip, uint bn)
+{
+  ext2fs_balloc(ip->dev, ip->inum);
+  uint addr, *a, *b, *c;
+  struct buf *bp, *bp1, *bp2;
+  struct ext2fs_addrs *ad;
+  ad = (struct ext2fs_addrs *)ip->addrs;
+
+  if (bn < EXT2_NDIR_BLOCKS){
+    if ((addr = ad->addrs[bn]) == 0)
+      ad->addrs[bn] = addr = ext2fs_balloc(ip->dev, ip->inum);
+    return addr;
+  }
+  bn -= EXT2_NDIR_BLOCKS;
+  if (bn < EXT2_INDIRECT){
+    if ((addr = ad->addrs[EXT2_IND_BLOCK]) == 0)
+      ad->addrs[EXT2_IND_BLOCK] = addr = ext2fs_balloc(ip->dev, ip->inum);
+    bp = bread(ip->dev, addr);
+    a = (uint *)bp->data;
+    if ((addr = a[bn]) == 0)
+      a[bn] = addr = ext2fs_balloc(ip->dev, ip->inum);
+    brelse(bp);
+    return addr;
+  }
+  bn -= EXT2_INDIRECT;
+
+  if (bn < EXT2_DINDIRECT){
+    if ((addr = ad->addrs[EXT2_DIND_BLOCK]) == 0)
+      ad->addrs[EXT2_DIND_BLOCK] = addr = ext2fs_balloc(ip->dev, ip->inum);
+    bp = bread(ip->dev, addr);
+    a = (uint *)bp->data;
+    if ((addr = a[bn / EXT2_INDIRECT]) == 0)
+      a[bn / EXT2_INDIRECT] = addr = ext2fs_balloc(ip->dev, ip->inum);
+    bp1 = bread(ip->dev, addr);
+    b = (uint *)bp1->data;
+    if ((addr = b[bn / EXT2_INDIRECT]) == 0)
+      b[bn / EXT2_INDIRECT] = addr = ext2fs_balloc(ip->dev, ip->inum);
+    brelse(bp);
+    brelse(bp1);
+    return addr;
+  }
+  bn -= EXT2_DINDIRECT;
+
+  if (bn < EXT2_TINDIRECT){
+    if ((addr = ad->addrs[EXT2_TIND_BLOCK]) == 0)
+      ad->addrs[EXT2_TIND_BLOCK] = addr = ext2fs_balloc(ip->dev, ip->inum);
+    bp = bread(ip->dev, addr);
+    a = (uint *)bp->data;
+    if ((addr = a[bn / EXT2_INDIRECT]) == 0)
+      a[bn / EXT2_INDIRECT] = addr = ext2fs_balloc(ip->dev, ip->inum);
+    bp1 = bread(ip->dev, addr);
+    b = (uint *)bp1->data;
+    if ((addr = b[bn / EXT2_INDIRECT]) == 0)
+      b[bn / EXT2_INDIRECT] = addr = ext2fs_balloc(ip->dev, ip->inum);
+    bp2 = bread(ip->dev, addr);
+    c = (uint *)bp2->data;
+    if ((addr = c[bn / EXT2_INDIRECT]) == 0)
+      c[bn / EXT2_INDIRECT] = addr = ext2fs_balloc(ip->dev, ip->inum);
+    brelse(bp);
+    brelse(bp1);
+    brelse(bp2);
+    return addr;
+  }
+  panic("ext2_bmap: block number out of range\n");
 }
 
 // Truncate inode (discard contents).
@@ -218,7 +337,27 @@ ext2fs_itrunc(struct inode *ip)
 int
 ext2fs_readi(struct inode *ip, char *dst, uint off, uint n)
 {
-  return 0;
+  uint tot, m;
+  struct buf *bp;
+
+  if(ip->type == T_DEV){
+    if(ip->major < 0 || ip->major >= NDEV || !devsw[ip->major].read)
+      return -1;
+    return devsw[ip->major].read(ip, dst, n);
+  }
+
+  if(off > ip->size || off + n < off)
+    return -1;
+  if(off + n > ip->size)
+    n = ip->size - off;
+
+  for(tot = 0; tot < n; tot += m, off += m, dst += m){
+    bp = bread(ip->dev, ext2fs_bmap(ip, off / EXT2_BSIZE));
+    m = min(n - tot, EXT2_BSIZE - off % EXT2_BSIZE);
+    memmove(dst, bp->data + off % EXT2_BSIZE, m);
+    brelse(bp);
+  }
+  return n;
 }
 
 int
@@ -228,9 +367,31 @@ ext2fs_writei(struct inode *ip, char *src, uint off, uint n)
   return 0;
 }
 
+int
+ext2fs_namecmp(const char *s, const char *t)
+{
+  return strncmp(s, t, EXT2_NAME_LEN);
+}
+
 struct inode*
 ext2fs_dirlookup(struct inode *dp, char *name, uint *poff)
 {
+  uint off;
+  struct ext2_dir_entry_2 de;
+  char file_name[EXT2_NAME_LEN + 1];
+  for (off = 0; off < dp->size; off += sizeof(de)){
+    if (dp->iops->readi(dp, (char *)&de, off,sizeof(de)) != sizeof(de))
+      panic("ext2fs_dirlookup: read error");
+    if (de.inode == 0)
+      continue;
+    strncpy(file_name, de.name, de.name_len);
+    file_name[de.name_len] = '\0';
+    if (ext2fs_namecmp(name, file_name) == 0){
+      if (poff)
+        *poff = off;
+      return iget(dp->dev, de.inode);
+    }
+  }
   return 0;
 }
 
