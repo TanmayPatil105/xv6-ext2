@@ -85,8 +85,10 @@ idestart(struct buf *b)
 {
   if(b == 0)
     panic("idestart");
-  if(b->blockno >= FSSIZE)
-    panic("incorrect blockno");
+  if(b->dev == ROOTDEV && b->blockno >= FSSIZE)
+    panic("incorrect xv6 blockno");
+  else if(b->dev == EXT2DEV && b->blockno >= EXT2FSSIZE)
+    panic("incorrect ext2 blockno");
 
   int portno;
   if (b->dev <= 1)

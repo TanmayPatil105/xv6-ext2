@@ -80,13 +80,13 @@ ext2fs_free_block(char *bitmap)
 static uint
 ext2fs_balloc(uint dev, uint inum)
 {
-  int bno, fbit, zbno;
+  int gno, fbit, zbno;
   struct ext2_group_desc bgdesc;
   struct buf *bp1, *bp2;
 
-  bno = GET_GROUP_NO(inum, ext2_sb);
+  gno = GET_GROUP_NO(inum, ext2_sb);
   bp1 = bread(dev, 2);
-  memmove(&bgdesc, bp1->data + bno * sizeof(bgdesc), sizeof(bgdesc));
+  memmove(&bgdesc, bp1->data + gno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp1);
   bp2 = bread(dev, bgdesc.bg_block_bitmap);
 
@@ -107,14 +107,14 @@ ext2fs_balloc(uint dev, uint inum)
 static void
 ext2fs_bfree(int dev, uint b)
 {
-  int bno, iindex, mask;
+  int gno, iindex, mask;
   struct ext2_group_desc bgdesc;
   struct buf *bp1, *bp2;
 
-  bno = GET_GROUP_NO(b, ext2_sb);
+  gno = GET_GROUP_NO(b, ext2_sb);
   iindex = GET_INODE_INDEX(b, ext2_sb);
   bp1 = bread(dev, 2);
-  memmove(&bgdesc, bp1->data + bno * sizeof(bgdesc), sizeof(bgdesc));
+  memmove(&bgdesc, bp1->data + gno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp1);
   bp2 = bread(dev, bgdesc.bg_block_bitmap);
   iindex -= bgdesc.bg_block_bitmap;
@@ -146,12 +146,85 @@ ext2fs_ialloc(uint dev, short type)
 void
 ext2fs_iupdate(struct inode *ip)
 {
-  return;
+  struct buf *bp, *bp1;
+  struct ext2_group_desc bgdesc;
+  struct ext2_inode din;
+  struct ext2fs_addrs *ad;
+  int gno, ioff, bno, iindex;
+
+  gno = GET_GROUP_NO(ip->inum, ext2_sb);
+  ioff = GET_INODE_INDEX(ip->inum, ext2_sb);
+  bp = bread(ip->dev, 2);
+  memmove(&bgdesc, bp->data + gno * sizeof(bgdesc), sizeof(bgdesc));
+  brelse(bp);
+  bno = bgdesc.bg_inode_table + ioff / (EXT2_BSIZE / ext2_sb.s_inode_size);
+  iindex = ioff % (EXT2_BSIZE / ext2_sb.s_inode_size);
+  bp1 = bread(ip->dev, bno);
+  memmove(&din, bp1->data + iindex * ext2_sb.s_inode_size, sizeof(din));
+
+  if (ip->type == T_DIR)
+    din.i_mode = S_IFDIR;
+  if (ip->type == T_FILE)
+    din.i_mode = S_IFREG;
+  din.i_links_count = ip->nlink;
+  din.i_size = ip->size;
+  din.i_dtime = 0;
+  din.i_faddr = 0;
+  din.i_file_acl = 0;
+  din.i_flags = 0;
+  din.i_generation = 0;
+  din.i_gid = 0;
+  din.i_mtime = 0;
+  din.i_uid = 0;
+  din.i_atime = 0;
+
+  ad = (struct ext2fs_addrs *)ip->addrs;
+  memmove(din.i_block, ad->addrs, sizeof(ad->addrs));
+  memmove(bp1->data + (iindex * ext2_sb.s_inode_size), &din, sizeof(din));
+  bwrite(bp1);
+  brelse(bp1);
 }
 
 void
 ext2fs_ilock(struct inode *ip)
 {
+  struct buf *bp, *bp1;
+  struct ext2_group_desc bgdesc;
+  struct ext2_inode din;
+  struct ext2fs_addrs *ad;
+  int gno, ioff, bno, iindex;
+  if (ip == 0 || ip->ref < 1)
+    panic("ext2fs_ilock");
+
+  acquiresleep(&ip->lock);
+  ad = (struct ext2fs_addrs *)ip->addrs;
+
+  if (ip->valid == 0){
+    gno = GET_GROUP_NO(ip->inum, ext2_sb);
+    ioff = GET_INODE_INDEX(ip->inum, ext2_sb);
+    bp = bread(ip->dev, 2);
+    memmove(&bgdesc, bp->data + gno * sizeof(bgdesc), sizeof(bgdesc));
+    brelse(bp);
+    bno = bgdesc.bg_inode_table + ioff / (EXT2_BSIZE / ext2_sb.s_inode_size);
+    iindex = ioff % (EXT2_BSIZE / ext2_sb.s_inode_size);
+    bp1 = bread(ip->dev, bno);
+    memmove(&din, bp1->data + iindex * ext2_sb.s_inode_size, sizeof(din));
+    brelse(bp1);
+
+    if (S_ISDIR(din.i_mode))
+      ip->type = T_DIR;
+    else if (S_ISREG(din.i_mode))
+      ip->type = T_FILE;
+    ip->major = 0;
+    ip->minor = 0;
+    ip->nlink = din.i_links_count;
+    ip->size = din.i_size;
+    memmove(ad->addrs, din.i_block, sizeof(ad->addrs));
+
+    ip->valid = 1;
+    if (ip->type == 0)
+      panic("ext2fs_ilock: no type");
+  }
   return;
 }
 
@@ -159,7 +232,7 @@ void
 ext2fs_iunlock(struct inode *ip)
 {
   if (ip == 0 || !holdingsleep(&ip->lock) || ip->ref < 1)
-    panic("iunlock");
+    panic("ext2fs_iunlock");
 
   releasesleep(&ip->lock);
 }
@@ -168,14 +241,14 @@ ext2fs_iunlock(struct inode *ip)
 static void
 ext2fs_ifree(struct inode *ip)
 {
-  int bno, iindex, mask;
+  int gno, iindex, mask;
   struct ext2_group_desc bgdesc;
   struct buf *bp1, *bp2;
 
-  bno = GET_GROUP_NO(ip->inum, ext2_sb);
+  gno = GET_GROUP_NO(ip->inum, ext2_sb);
   iindex = GET_INODE_INDEX(ip->inum, ext2_sb);
   bp1 = bread(ip->dev, 2);
-  memmove(&bgdesc, bp1->data + bno * sizeof(bgdesc), sizeof(bgdesc));
+  memmove(&bgdesc, bp1->data + gno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp1);
   bp2 = bread(ip->dev, bgdesc.bg_block_bitmap);
   iindex -= bgdesc.bg_block_bitmap;
