@@ -686,14 +686,14 @@ static struct inode*
 namex(char *path, int nameiparent, char *name)
 {
   struct inode *ip, *next;
-  if(strncmp(path, "/mnt",4) == 0){
+  if (strncmp(path, "/mnt", 4) == 0) {
     ip = iget(EXT2DEV, EXT2INO);
     path += 4;
-  }
-  else if(*path == '/')
+  } else if(*path == '/') {
     ip = iget(ROOTDEV, ROOTINO);
-  else
+  } else {
     ip = idup(myproc()->cwd);
+  }
 
   while((path = skipelem(path, name, ip->dev)) != 0){
     ip->iops->ilock(ip);

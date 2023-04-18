@@ -41,7 +41,7 @@ void
 ext2fs_readsb(int dev, struct ext2_super_block *ext2_sb)
 {
   struct buf *bp;
-  bp = bread(dev, 2);
+  bp = bread(dev, 1);
   memmove(ext2_sb, bp->data, sizeof(*ext2_sb));
   brelse(bp);
 }
@@ -54,7 +54,7 @@ ext2fs_bzero(int dev, int bno)
 
   bp = bread(dev, bno);
   memset(bp->data, 0, BSIZE);
-  log_write(bp);
+  bwrite(bp);
   brelse(bp);
 }
 
@@ -85,7 +85,7 @@ ext2fs_balloc(uint dev, uint inum)
   struct buf *bp1, *bp2;
 
   gno = GET_GROUP_NO(inum, ext2_sb);
-  bp1 = bread(dev, 3);
+  bp1 = bread(dev, 2);
   memmove(&bgdesc, bp1->data + gno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp1);
   bp2 = bread(dev, bgdesc.bg_block_bitmap);
@@ -113,9 +113,8 @@ ext2fs_bfree(int dev, uint b)
 
   gno = GET_GROUP_NO(b, ext2_sb);
   iindex = GET_INODE_INDEX(b, ext2_sb);
-  bp1 = bread(dev, 3);
+  bp1 = bread(dev, 2);
   memmove(&bgdesc, bp1->data + gno * sizeof(bgdesc), sizeof(bgdesc));
-  brelse(bp1);
   bp2 = bread(dev, bgdesc.bg_block_bitmap);
   iindex -= bgdesc.bg_block_bitmap;
   mask = 1 << (iindex % 8);
@@ -125,6 +124,7 @@ ext2fs_bfree(int dev, uint b)
   bp2->data[iindex / 8] = bp2->data[iindex / 8] & ~mask;
   bwrite(bp2);
   brelse(bp2);
+  brelse(bp1);
 }
 
 void
@@ -147,7 +147,7 @@ ext2fs_ialloc(uint dev, short type)
 
   bgcount = ext2_sb.s_blocks_count / ext2_sb.s_blocks_per_group;
   for (i = 0; i <= bgcount; i++){
-    bp1 = bread(dev, 3);
+    bp1 = bread(dev, 2);
     memmove(&bgdesc, bp1->data + i * sizeof(bgdesc), sizeof(bgdesc));
     brelse(bp1);
 
@@ -188,7 +188,7 @@ ext2fs_iupdate(struct inode *ip)
 
   gno = GET_GROUP_NO(ip->inum, ext2_sb);
   ioff = GET_INODE_INDEX(ip->inum, ext2_sb);
-  bp = bread(ip->dev, 3);
+  bp = bread(ip->dev, 2);
   memmove(&bgdesc, bp->data + gno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp);
   bno = bgdesc.bg_inode_table + ioff / (EXT2_BSIZE / ext2_sb.s_inode_size);
@@ -236,7 +236,7 @@ ext2fs_ilock(struct inode *ip)
   if (ip->valid == 0){
     gno = GET_GROUP_NO(ip->inum, ext2_sb);
     ioff = GET_INODE_INDEX(ip->inum, ext2_sb);
-    bp = bread(ip->dev, 3);
+    bp = bread(ip->dev, 2);
     memmove(&bgdesc, bp->data + gno * sizeof(bgdesc), sizeof(bgdesc));
     brelse(bp);
     bno = bgdesc.bg_inode_table + ioff / (EXT2_BSIZE / ext2_sb.s_inode_size);
@@ -245,9 +245,9 @@ ext2fs_ilock(struct inode *ip)
     memmove(&din, bp1->data + iindex * ext2_sb.s_inode_size, sizeof(din));
     brelse(bp1);
 
-    if (S_ISDIR(din.i_mode))
+    if (S_ISDIR(din.i_mode) || din.i_mode == T_DIR)
       ip->type = T_DIR;
-    else if (S_ISREG(din.i_mode))
+    else if (S_ISREG(din.i_mode) || din.i_mode == T_FILE)
       ip->type = T_FILE;
     ip->major = 0;
     ip->minor = 0;
@@ -276,22 +276,21 @@ ext2fs_iunlock(struct inode *ip)
 static void
 ext2fs_ifree(struct inode *ip)
 {
-  int gno, iindex, mask;
+  int gno, index, mask;
   struct ext2_group_desc bgdesc;
   struct buf *bp1, *bp2;
 
   gno = GET_GROUP_NO(ip->inum, ext2_sb);
-  iindex = GET_INODE_INDEX(ip->inum, ext2_sb);
-  bp1 = bread(ip->dev, 3);
+  bp1 = bread(ip->dev, 2);
   memmove(&bgdesc, bp1->data + gno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp1);
-  bp2 = bread(ip->dev, bgdesc.bg_block_bitmap);
-  iindex -= bgdesc.bg_block_bitmap;
-  mask = 1 << (iindex % 8);
+  bp2 = bread(ip->dev, bgdesc.bg_inode_bitmap);
+  index = (ip->inum - 1) % ext2_sb.s_inodes_per_group;
+  mask = 1 << (index % 8);
 
-  /*if ((bp2->data[iindex / 8] & mask) == 0)
-    panic("ext2fs_ifree: inode already free\n");*/
-  bp2->data[iindex / 8] = bp2->data[iindex / 8] & ~mask;
+  if ((bp2->data[index / 8] & mask) == 0)
+    panic("ext2fs_ifree: inode already free\n");
+  bp2->data[index / 8] = bp2->data[index / 8] & ~mask;
   bwrite(bp2);
   brelse(bp2);
 }
@@ -573,7 +572,7 @@ ext2fs_writei(struct inode *ip, char *src, uint off, uint n)
     return -1;
 
   for(tot=0; tot<n; tot+=m, off+=m, src+=m){
-    bp = bread(ip->dev, ext2fs_bmap(ip, off/EXT2_BSIZE));
+    bp = bread(ip->dev, ext2fs_bmap(ip, off / EXT2_BSIZE));
     m = min(n - tot, EXT2_BSIZE - off%EXT2_BSIZE);
     memmove(bp->data + off%EXT2_BSIZE, src, m);
     bwrite(bp);
