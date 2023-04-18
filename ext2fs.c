@@ -247,7 +247,7 @@ ext2fs_ilock(struct inode *ip)
 
     if (S_ISDIR(din.i_mode) || din.i_mode == T_DIR)
       ip->type = T_DIR;
-    else if (S_ISREG(din.i_mode) || din.i_mode == T_FILE)
+    else
       ip->type = T_FILE;
     ip->major = 0;
     ip->minor = 0;
