@@ -598,7 +598,7 @@ ext2fs_dirlookup(struct inode *dp, char *name, uint *poff)
   uint off;
   struct ext2_dir_entry_2 de;
   char file_name[EXT2_NAME_LEN + 1];
-  for (off = 0; off < dp->size; off += sizeof(de)){
+  for (off = 0; off < dp->size; off += de.rec_len){
     if (dp->iops->readi(dp, (char *)&de, off,sizeof(de)) != sizeof(de))
       panic("ext2fs_dirlookup: read error");
     if (de.inode == 0)
