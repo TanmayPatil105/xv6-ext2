@@ -85,7 +85,7 @@ ext2fs_balloc(uint dev, uint inum)
   struct buf *bp1, *bp2;
 
   gno = GET_GROUP_NO(inum, ext2_sb);
-  bp1 = bread(dev, 2);
+  bp1 = bread(dev, 3);
   memmove(&bgdesc, bp1->data + gno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp1);
   bp2 = bread(dev, bgdesc.bg_block_bitmap);
@@ -113,7 +113,7 @@ ext2fs_bfree(int dev, uint b)
 
   gno = GET_GROUP_NO(b, ext2_sb);
   iindex = GET_INODE_INDEX(b, ext2_sb);
-  bp1 = bread(dev, 2);
+  bp1 = bread(dev, 3);
   memmove(&bgdesc, bp1->data + gno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp1);
   bp2 = bread(dev, bgdesc.bg_block_bitmap);
@@ -147,7 +147,7 @@ ext2fs_ialloc(uint dev, short type)
 
   bgcount = ext2_sb.s_blocks_count / ext2_sb.s_blocks_per_group;
   for (i = 0; i <= bgcount; i++){
-    bp1 = bread(dev, 2);
+    bp1 = bread(dev, 3);
     memmove(&bgdesc, bp1->data + i * sizeof(bgdesc), sizeof(bgdesc));
     brelse(bp1);
 
@@ -188,7 +188,7 @@ ext2fs_iupdate(struct inode *ip)
 
   gno = GET_GROUP_NO(ip->inum, ext2_sb);
   ioff = GET_INODE_INDEX(ip->inum, ext2_sb);
-  bp = bread(ip->dev, 2);
+  bp = bread(ip->dev, 3);
   memmove(&bgdesc, bp->data + gno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp);
   bno = bgdesc.bg_inode_table + ioff / (EXT2_BSIZE / ext2_sb.s_inode_size);
@@ -236,7 +236,7 @@ ext2fs_ilock(struct inode *ip)
   if (ip->valid == 0){
     gno = GET_GROUP_NO(ip->inum, ext2_sb);
     ioff = GET_INODE_INDEX(ip->inum, ext2_sb);
-    bp = bread(ip->dev, 2);
+    bp = bread(ip->dev, 3);
     memmove(&bgdesc, bp->data + gno * sizeof(bgdesc), sizeof(bgdesc));
     brelse(bp);
     bno = bgdesc.bg_inode_table + ioff / (EXT2_BSIZE / ext2_sb.s_inode_size);
@@ -282,15 +282,15 @@ ext2fs_ifree(struct inode *ip)
 
   gno = GET_GROUP_NO(ip->inum, ext2_sb);
   iindex = GET_INODE_INDEX(ip->inum, ext2_sb);
-  bp1 = bread(ip->dev, 2);
+  bp1 = bread(ip->dev, 3);
   memmove(&bgdesc, bp1->data + gno * sizeof(bgdesc), sizeof(bgdesc));
   brelse(bp1);
   bp2 = bread(ip->dev, bgdesc.bg_block_bitmap);
   iindex -= bgdesc.bg_block_bitmap;
   mask = 1 << (iindex % 8);
 
-  if ((bp2->data[iindex / 8] & mask) == 0)
-    panic("ext2fs_ifree: inode already free\n");
+  /*if ((bp2->data[iindex / 8] & mask) == 0)
+    panic("ext2fs_ifree: inode already free\n");*/
   bp2->data[iindex / 8] = bp2->data[iindex / 8] & ~mask;
   bwrite(bp2);
   brelse(bp2);
