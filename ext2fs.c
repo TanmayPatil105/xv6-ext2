@@ -140,7 +140,41 @@ inodes_per_group %d inode_size %d\n", ext2_sb.s_magic, 1024<<ext2_sb.s_log_block
 struct inode*
 ext2fs_ialloc(uint dev, short type)
 {
-  return 0;
+  int i, fbit, bno, iindex, bgcount, inum;
+  struct buf *bp1, *bp2, *bp3;
+  struct ext2_inode *din;
+  struct ext2_group_desc bgdesc;
+
+  bgcount = ext2_sb.s_blocks_count / ext2_sb.s_blocks_per_group;
+  for (i = 0; i <= bgcount; i++){
+    bp1 = bread(dev, 2);
+    memmove(&bgdesc, bp1->data + i * sizeof(bgdesc), sizeof(bgdesc));
+    brelse(bp1);
+
+    bp2 = bread(dev, bgdesc.bg_inode_bitmap);
+    fbit = ext2fs_free_block((char *)bp2->data);
+    if (fbit == -1){
+      brelse(bp2);
+      continue;
+    }
+
+    bno = bgdesc.bg_inode_table + fbit / (EXT2_BSIZE / sizeof(struct ext2_inode));    iindex = fbit % (EXT2_BSIZE / sizeof(struct ext2_inode));
+    bp3 = bread(dev, bno);
+    din = (struct ext2_inode *)bp3->data + iindex;
+    memset(din, 0, sizeof(*din));
+    if (type == T_DIR)
+      din->i_mode = S_IFDIR;
+    else if (type == T_FILE)
+      din->i_mode = S_IFREG;
+    bwrite(bp3);
+    bwrite(bp2);
+    brelse(bp3);
+    brelse(bp2);
+
+    inum = i * ext2_sb.s_inodes_per_group + fbit + 1;
+    return iget(dev, inum);
+  }
+  panic("ext2_ialloc: no inodes");
 }
 
 void
@@ -219,6 +253,7 @@ ext2fs_ilock(struct inode *ip)
     ip->minor = 0;
     ip->nlink = din.i_links_count;
     ip->size = din.i_size;
+    ip->iops = &ext2fs_inode_ops;
     memmove(ad->addrs, din.i_block, sizeof(ad->addrs));
 
     ip->valid = 1;
@@ -278,6 +313,7 @@ ext2fs_iput(struct inode *ip)
       ip->type = 0;
       ip->iops->iupdate(ip);
       ip->valid = 0;
+      ip->iops = 0;
       ip->addrs = 0;
     }
   }

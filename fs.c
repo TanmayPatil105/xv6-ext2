@@ -346,6 +346,7 @@ xv6fs_ilock(struct inode *ip)
     ip->minor = dip->minor;
     ip->nlink = dip->nlink;
     ip->size = dip->size;
+    ip->iops = &xv6fs_inode_ops;
     memmove(ad->addrs, dip->addrs, sizeof(ad->addrs));
     brelse(bp);
     ip->valid = 1;
@@ -387,6 +388,7 @@ xv6fs_iput(struct inode *ip)
       ip->type = 0;
       ip->iops->iupdate(ip);
       ip->valid = 0;
+      ip->iops = 0;
       ip->addrs = 0;
     }
   }
@@ -647,11 +649,16 @@ xv6fs_dirlink(struct inode *dp, char *name, uint inum)
 //   skipelem("", name) = skipelem("////", name) = 0
 //
 static char*
-skipelem(char *path, char *name)
+skipelem(char *path, char *name, uint dev)
 {
   char *s;
   int len;
+  uint dirlen;
 
+  if (dev == ROOTDEV)
+    dirlen = DIRSIZ;
+  else
+    dirlen = EXT2_NAME_LEN;
   while(*path == '/')
     path++;
   if(*path == 0)
@@ -660,8 +667,8 @@ skipelem(char *path, char *name)
   while(*path != '/' && *path != 0)
     path++;
   len = path - s;
-  if(len >= DIRSIZ)
-    memmove(name, s, DIRSIZ);
+  if(len >= dirlen)
+    memmove(name, s, dirlen);
   else {
     memmove(name, s, len);
     name[len] = 0;
@@ -688,7 +695,7 @@ namex(char *path, int nameiparent, char *name)
   else
     ip = idup(myproc()->cwd);
 
-  while((path = skipelem(path, name)) != 0){
+  while((path = skipelem(path, name, ip->dev)) != 0){
     ip->iops->ilock(ip);
     if(ip->type != T_DIR){
       ip->iops->iunlockput(ip);
@@ -716,7 +723,7 @@ namex(char *path, int nameiparent, char *name)
 struct inode*
 namei(char *path)
 {
-  char name[DIRSIZ];
+  char name[EXT2_NAME_LEN];
   return namex(path, 0, name);
 }
 
