@@ -366,7 +366,6 @@ ext2fs_stati(struct inode *ip, struct stat *st)
 static uint
 ext2fs_bmap(struct inode *ip, uint bn)
 {
-  ext2fs_balloc(ip->dev, ip->inum);
   uint addr, *a, *b, *c;
   struct buf *bp, *bp1, *bp2;
   struct ext2fs_addrs *ad;
