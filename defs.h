@@ -9,6 +9,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct ext2_super_block;
 
 // bio.c
 void            binit(void);
@@ -43,6 +44,7 @@ struct inode*   idup(struct inode*);
 void            xv6fs_iinit(int dev);
 void            xv6fs_ilock(struct inode*);
 void            xv6fs_iput(struct inode*);
+struct inode*   iget(uint, uint);
 void            xv6fs_iunlock(struct inode*);
 void            xv6fs_iunlockput(struct inode*);
 void            xv6fs_iupdate(struct inode*);
@@ -54,7 +56,7 @@ void            xv6fs_stati(struct inode*, struct stat*);
 int             xv6fs_writei(struct inode*, char*, uint, uint);
 
 // ext2fs.c
-void		ext2fs_readsb(int dev, struct superblock *sb);
+void		ext2fs_readsb(int dev, struct ext2_super_block *sb);
 int             ext2fs_dirlink(struct inode*, char*, uint);
 struct inode*   ext2fs_dirlookup(struct inode*, char*, uint*);
 struct inode*   ext2fs_ialloc(uint, short);

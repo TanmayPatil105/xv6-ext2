@@ -9,6 +9,7 @@
 #include "sleeplock.h"
 #include "fs.h"
 #include "file.h"
+#include "ext2fs.h"
 
 struct {
   struct spinlock lock;
@@ -410,6 +411,7 @@ forkret(void)
     first = 0;
     xv6fs_iinit(ROOTDEV);
     initlog(ROOTDEV);
+    ext2fs_iinit(EXT2DEV);
   }
 
   // Return to "caller", actually trapret (see allocproc).

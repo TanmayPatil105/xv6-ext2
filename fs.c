@@ -18,15 +18,22 @@
 #include "spinlock.h"
 #include "sleeplock.h"
 #include "fs.h"
+#include "ext2fs.h"
 #include "buf.h"
 #include "file.h"
-#include "ext2fs.h"
+#include "icache.h"
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
-static void xv6fs_itrunc(struct inode*);
+
+static void xv6fs_bzero(int dev, int bno);
+static uint xv6fs_balloc(uint dev);
+static void xv6fs_bfree(int dev, uint b);
+static uint xv6fs_bmap(struct inode *ip, uint bn);
+static void xv6fs_itrunc(struct inode *ip);
 // there should be one superblock per disk device, but we run with
 // only one device
-struct superblock sb; 
+struct superblock sb;
+struct icache icache;
 
 struct inode_operations xv6fs_inode_ops = {
 	xv6fs_dirlink,
@@ -43,6 +50,8 @@ struct inode_operations xv6fs_inode_ops = {
 	xv6fs_writei,
 };
 
+struct xv6fs_addrs xv6fs_addrs[NINODE];
+
 // Read the super block.
 void
 xv6fs_readsb(int dev, struct superblock *sb)
@@ -56,7 +65,7 @@ xv6fs_readsb(int dev, struct superblock *sb)
 
 // Zero a block.
 static void
-bzero(int dev, int bno)
+xv6fs_bzero(int dev, int bno)
 {
   struct buf *bp;
 
@@ -70,7 +79,7 @@ bzero(int dev, int bno)
 
 // Allocate a zeroed disk block.
 static uint
-balloc(uint dev)
+xv6fs_balloc(uint dev)
 {
   int b, bi, m;
   struct buf *bp;
@@ -84,7 +93,7 @@ balloc(uint dev)
         bp->data[bi/8] |= m;  // Mark block in use.
         log_write(bp);
         brelse(bp);
-        bzero(dev, b + bi);
+        xv6fs_bzero(dev, b + bi);
         return b + bi;
       }
     }
@@ -95,7 +104,7 @@ balloc(uint dev)
 
 // Free a disk block.
 static void
-bfree(int dev, uint b)
+xv6fs_bfree(int dev, uint b)
 {
   struct buf *bp;
   int bi, m;
@@ -179,11 +188,6 @@ bfree(int dev, uint b)
 // dev, and inum.  One must hold ip->lock in order to
 // read or write that inode's ip->valid, ip->size, ip->type, &c.
 
-struct {
-  struct spinlock lock;
-  struct inode inode[NINODE];
-} icache;
-
 void
 xv6fs_iinit(int dev)
 {
@@ -201,7 +205,7 @@ xv6fs_iinit(int dev)
           sb.bmapstart);
 }
 
-static struct inode* iget(uint dev, uint inum);
+struct inode* iget(uint dev, uint inum);
 
 //PAGEBREAK!
 // Allocate an inode on device dev.
@@ -238,6 +242,8 @@ xv6fs_iupdate(struct inode *ip)
 {
   struct buf *bp;
   struct dinode *dip;
+  struct xv6fs_addrs *ad;
+  ad = (struct xv6fs_addrs *)ip->addrs;
 
   bp = bread(ip->dev, IBLOCK(ip->inum, sb));
   dip = (struct dinode*)bp->data + ip->inum%IPB;
@@ -246,7 +252,7 @@ xv6fs_iupdate(struct inode *ip)
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
   dip->size = ip->size;
-  memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
+  memmove(dip->addrs, ad->addrs, sizeof(ad->addrs));
   log_write(bp);
   brelse(bp);
 }
@@ -254,10 +260,11 @@ xv6fs_iupdate(struct inode *ip)
 // Find the inode with number inum on device dev
 // and return the in-memory copy. Does not lock
 // the inode and does not read it from disk.
-static struct inode*
+struct inode*
 iget(uint dev, uint inum)
 {
   struct inode *ip, *empty;
+  int i, j;
 
   acquire(&icache.lock);
 
@@ -273,6 +280,15 @@ iget(uint dev, uint inum)
       empty = ip;
   }
 
+  for(i = 0; i < NINODE; i++){
+    if (xv6fs_addrs[i].busy == 0)
+      break;
+  }
+  for(j = 0; j < NINODE; j++){
+    if (ext2fs_addrs[i].busy == 0)
+      break;
+  }
+
   // Recycle an inode cache entry.
   if(empty == 0)
     panic("iget: no inodes");
@@ -282,10 +298,15 @@ iget(uint dev, uint inum)
   ip->inum = inum;
   ip->ref = 1;
   ip->valid = 0;
-  if (dev == ROOTDEV)
+  if (dev == ROOTDEV) {
     ip->iops = &xv6fs_inode_ops;
-  else
+    ip->addrs = (void *)&xv6fs_addrs[i];
+    xv6fs_addrs[i].busy = 1;
+  } else {
     ip->iops = &ext2fs_inode_ops;
+    ip->addrs = (void *)&ext2fs_addrs[j];
+    ext2fs_addrs[j].busy = 1;
+  }
   release(&icache.lock);
 
   return ip;
@@ -309,11 +330,13 @@ xv6fs_ilock(struct inode *ip)
 {
   struct buf *bp;
   struct dinode *dip;
+  struct xv6fs_addrs *ad;
 
   if(ip == 0 || ip->ref < 1)
     panic("ilock");
 
   acquiresleep(&ip->lock);
+  ad = (struct xv6fs_addrs *)ip->addrs;
 
   if(ip->valid == 0){
     bp = bread(ip->dev, IBLOCK(ip->inum, sb));
@@ -323,7 +346,8 @@ xv6fs_ilock(struct inode *ip)
     ip->minor = dip->minor;
     ip->nlink = dip->nlink;
     ip->size = dip->size;
-    memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
+    ip->iops = &xv6fs_inode_ops;
+    memmove(ad->addrs, dip->addrs, sizeof(ad->addrs));
     brelse(bp);
     ip->valid = 1;
     if(ip->type == 0)
@@ -351,7 +375,9 @@ xv6fs_iunlock(struct inode *ip)
 void
 xv6fs_iput(struct inode *ip)
 {
+  struct xv6fs_addrs *ad;
   acquiresleep(&ip->lock);
+  ad = (struct xv6fs_addrs *)ip->addrs;
   if(ip->valid && ip->nlink == 0){
     acquire(&icache.lock);
     int r = ip->ref;
@@ -362,12 +388,18 @@ xv6fs_iput(struct inode *ip)
       ip->type = 0;
       ip->iops->iupdate(ip);
       ip->valid = 0;
+      ip->iops = 0;
+      ip->addrs = 0;
     }
   }
   releasesleep(&ip->lock);
 
   acquire(&icache.lock);
   ip->ref--;
+  if (ip->ref == 0){
+    ad->busy = 0;
+    ip->addrs = 0;
+  }
   release(&icache.lock);
 }
 
@@ -390,26 +422,28 @@ xv6fs_iunlockput(struct inode *ip)
 // Return the disk block address of the nth block in inode ip.
 // If there is no such block, bmap allocates one.
 static uint
-bmap(struct inode *ip, uint bn)
+xv6fs_bmap(struct inode *ip, uint bn)
 {
   uint addr, *a;
   struct buf *bp;
+  struct xv6fs_addrs *ad;
+  ad = (struct xv6fs_addrs *)ip->addrs;
 
   if(bn < NDIRECT){
-    if((addr = ip->addrs[bn]) == 0)
-      ip->addrs[bn] = addr = balloc(ip->dev);
+    if((addr = ad->addrs[bn]) == 0)
+      ad->addrs[bn] = addr = xv6fs_balloc(ip->dev);
     return addr;
   }
   bn -= NDIRECT;
 
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT]) == 0)
-      ip->addrs[NDIRECT] = addr = balloc(ip->dev);
+    if((addr = ad->addrs[NDIRECT]) == 0)
+      ad->addrs[NDIRECT] = addr = xv6fs_balloc(ip->dev);
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
     if((addr = a[bn]) == 0){
-      a[bn] = addr = balloc(ip->dev);
+      a[bn] = addr = xv6fs_balloc(ip->dev);
       log_write(bp);
     }
     brelse(bp);
@@ -430,24 +464,26 @@ xv6fs_itrunc(struct inode *ip)
   int i, j;
   struct buf *bp;
   uint *a;
+  struct xv6fs_addrs *ad;
+  ad = (struct xv6fs_addrs *)ip->addrs;
 
   for(i = 0; i < NDIRECT; i++){
-    if(ip->addrs[i]){
-      bfree(ip->dev, ip->addrs[i]);
-      ip->addrs[i] = 0;
+    if(ad->addrs[i]){
+      xv6fs_bfree(ip->dev, ad->addrs[i]);
+      ad->addrs[i] = 0;
     }
   }
 
-  if(ip->addrs[NDIRECT]){
-    bp = bread(ip->dev, ip->addrs[NDIRECT]);
+  if(ad->addrs[NDIRECT]){
+    bp = bread(ip->dev, ad->addrs[NDIRECT]);
     a = (uint*)bp->data;
     for(j = 0; j < NINDIRECT; j++){
       if(a[j])
-        bfree(ip->dev, a[j]);
+        xv6fs_bfree(ip->dev, a[j]);
     }
     brelse(bp);
-    bfree(ip->dev, ip->addrs[NDIRECT]);
-    ip->addrs[NDIRECT] = 0;
+    xv6fs_bfree(ip->dev, ad->addrs[NDIRECT]);
+    ad->addrs[NDIRECT] = 0;
   }
 
   ip->size = 0;
@@ -487,7 +523,7 @@ xv6fs_readi(struct inode *ip, char *dst, uint off, uint n)
     n = ip->size - off;
 
   for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
+    bp = bread(ip->dev, xv6fs_bmap(ip, off/BSIZE));
     m = min(n - tot, BSIZE - off%BSIZE);
     memmove(dst, bp->data + off%BSIZE, m);
     brelse(bp);
@@ -516,7 +552,7 @@ xv6fs_writei(struct inode *ip, char *src, uint off, uint n)
     return -1;
 
   for(tot=0; tot<n; tot+=m, off+=m, src+=m){
-    bp = bread(ip->dev, bmap(ip, off/BSIZE));
+    bp = bread(ip->dev, xv6fs_bmap(ip, off/BSIZE));
     m = min(n - tot, BSIZE - off%BSIZE);
     memmove(bp->data + off%BSIZE, src, m);
     log_write(bp);
@@ -613,11 +649,16 @@ xv6fs_dirlink(struct inode *dp, char *name, uint inum)
 //   skipelem("", name) = skipelem("////", name) = 0
 //
 static char*
-skipelem(char *path, char *name)
+skipelem(char *path, char *name, uint dev)
 {
   char *s;
   int len;
+  uint dirlen;
 
+  if (dev == ROOTDEV)
+    dirlen = DIRSIZ;
+  else
+    dirlen = EXT2_NAME_LEN;
   while(*path == '/')
     path++;
   if(*path == 0)
@@ -626,8 +667,8 @@ skipelem(char *path, char *name)
   while(*path != '/' && *path != 0)
     path++;
   len = path - s;
-  if(len >= DIRSIZ)
-    memmove(name, s, DIRSIZ);
+  if(len >= dirlen)
+    memmove(name, s, dirlen);
   else {
     memmove(name, s, len);
     name[len] = 0;
@@ -645,16 +686,16 @@ static struct inode*
 namex(char *path, int nameiparent, char *name)
 {
   struct inode *ip, *next;
-  if(strncmp(path, "/mnt",4) == 0){
+  if (strncmp(path, "/mnt", 4) == 0) {
     ip = iget(EXT2DEV, EXT2INO);
     path += 4;
-  }
-  else if(*path == '/')
+  } else if(*path == '/') {
     ip = iget(ROOTDEV, ROOTINO);
-  else
+  } else {
     ip = idup(myproc()->cwd);
+  }
 
-  while((path = skipelem(path, name)) != 0){
+  while((path = skipelem(path, name, ip->dev)) != 0){
     ip->iops->ilock(ip);
     if(ip->type != T_DIR){
       ip->iops->iunlockput(ip);
@@ -682,7 +723,7 @@ namex(char *path, int nameiparent, char *name)
 struct inode*
 namei(char *path)
 {
-  char name[DIRSIZ];
+  char name[EXT2_NAME_LEN];
   return namex(path, 0, name);
 }
 
@@ -691,4 +732,3 @@ nameiparent(char *path, char *name)
 {
   return namex(path, 1, name);
 }
-
