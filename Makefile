@@ -200,6 +200,13 @@ clean:
 	xv6memfs.img mkfs .gdbinit \
 	$(UPROGS)
 
+mount:
+	sudo mount ext2.img /tmp/1
+	sudo cp /etc/passwd /tmp/1/file1
+	sudo cp /etc/shadow /tmp/1/file2
+	sudo cp /etc/passwd /tmp/1/file3
+	sudo umount /tmp/1
+
 # make a printout
 FILES = $(shell grep -v '^\#' runoff.list)
 PRINT = runoff.list runoff.spec README toc.hdr toc.ftr $(FILES)
@@ -227,7 +234,7 @@ CPUS := 2
 endif
 QEMUOPTS = -drive file=ext2.img,index=2,media=disk,format=raw -drive file=fs.img,index=1,media=disk,format=raw -drive file=xv6.img,index=0,media=disk,format=raw -smp $(CPUS) -m 512 $(QEMUEXTRA)
 
-qemu: fs.img xv6.img ext2.img
+qemu: fs.img xv6.img ext2.img mount
 	$(QEMU) -serial mon:stdio $(QEMUOPTS)
 
 qemu-memfs: xv6memfs.img
