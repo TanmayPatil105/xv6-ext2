@@ -628,42 +628,21 @@ ext2fs_dirlink(struct inode *dp, char *name, uint inum)
     return -1;
   }
 
-  for (off = 0; off < dp->size; off += de.rec_len){
+  for (off = 0; off < dp->size; off += sizeof(de)){
     if (dp->iops->readi(dp, (char*)&de, off, sizeof(de)) != sizeof(de))
-      panic("ext2_dirlink read 1");
-
-    if (de.rec_len > sizeof(de) && de.rec_len == EXT2_BSIZE - (off % EXT2_BSIZE)){
-      de.rec_len = sizeof(de) - EXT2_NAME_LEN + de.name_len;
-      if (dp->iops->writei(dp, (char *)&de, off, sizeof(de)) != sizeof(de))
-        panic("ext2_dirlink write");
-
-      off += de.rec_len;
-      if(dp->iops->readi(dp, (char *)&de, off, sizeof(de)) != sizeof(de))
-        panic("ext2_dirlink read 2");
+      panic("ext2fs_dirlink read");
+    if (de.inode == 0)
       break;
-    }
   }
 
-  if (off == dp->size){
-    strncpy(de.name, name, EXT2_NAME_LEN);
-    de.name_len = strlen(de.name);
-    de.inode = inum;
-    de.rec_len = EXT2_BSIZE;
-    dp->size = off + de.rec_len;
-    dp->iops->iupdate(dp);
-    if (dp->iops->writei(dp, (char *)&de, off, sizeof(de)) != sizeof(de))
-      panic("ext2_dirlink write");
-    return 0;
-  }
-
-  strncpy(de.name, name, EXT2_NAME_LEN);
+  strncpy(de.name, name, de.name_len);
   de.inode = inum;
-  de.name_len = strlen(de.name);
-  de.rec_len = EXT2_BSIZE - off % EXT2_BSIZE;
+  de.rec_len = EXT2_BSIZE;
+  de.name_len = strlen(name);
   dp->size = off + de.rec_len;
   dp->iops->iupdate(dp);
-  if (dp->iops->writei(dp, (char *)&de, off, de.rec_len) != de.rec_len)
-    panic("dirlink");
+  dp->iops->writei(dp, (char*)&de, off , de.rec_len);
+
   return 0;
 }
 
