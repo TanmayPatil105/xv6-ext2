@@ -63,14 +63,17 @@ ext2fs_bzero(int dev, int bno)
 static uint
 ext2fs_free_block(char *bitmap)
 {
-  int i, mask;
+  int i, j, mask;
   for(i = 0; i < ext2_sb.s_blocks_per_group * 8; i++)
   {
-    mask = 1 << (i % 8);
-    if ((bitmap[i / 8] & mask) == 0)
+    for(j = 0; j < 8; j++)
     {
-      bitmap[i / 8] = bitmap[i / 8] | mask;
-      return i;
+      mask = 1 << (7 - j);
+      if ((bitmap[i] & mask) == 0)
+      {
+        bitmap[i] |= mask;
+        return i * 8 + j;
+      }
     }
   }
   return -1;
