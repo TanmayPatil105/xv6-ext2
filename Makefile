@@ -205,6 +205,8 @@ mount:
 	sudo cp /etc/passwd /tmp/1/file1
 	sudo cp /etc/shadow /tmp/1/file2
 	sudo cp /etc/passwd /tmp/1/file3
+	sudo mkdir -p /tmp/1/dir1/dir2/dir3
+	sudo cp /etc/passwd /tmp/1/dir1/dir2/dir3/file
 	sudo umount /tmp/1
 
 # make a printout
