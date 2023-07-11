@@ -54,7 +54,15 @@ To get started with the xv6-ext2 project, follow these steps:
    ```
    make clean qemu
    ```
+
    If it asks for a sudo password while building, provide it with your sudo password! :)
+
+   Read test (also done using recursive directory traversal)
+   ```
+   cat /mnt/file1
+   cat /mnt/dir1/dir2/dir3/file
+   ```
+   This commands prints the already mounted files from /etc/passwd
    
 4. **Explore xv6**: Run the modified xv6 operating system with the above command. Test the file system operations and verify their correctness.
    by running the **ext2fstest**
