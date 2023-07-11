@@ -8,9 +8,9 @@ The goal is to provide a basic understanding of file system concepts and demonst
 
 The Virtual File System (VFS) is an abstraction layer that provides a unified interface for file system operations in an operating system. It allows applications and system components to interact with various file systems without being aware of the underlying implementation details.
 
-The key purpose of VFS is to decouple the file system implementation from the rest of the operating system. By defining a common set of operations and data structures, VFS enables the operating system to support multiple file systems simultaneously. This flexibility allows users to choose different file systems based on their specific needs, such as performance, reliability, or special features.
+VFS enables the operating system to support multiple file systems simultaneously. This flexibility allows users to choose different file systems based on their specific needs, such as performance, reliability, or special features.
 
-VFS provides a standardized interface for operations like file creation, deletion, opening, reading, and writing. It also handles directory operations, such as creating, removing, and listing directories. By presenting a uniform API to applications, VFS simplifies the development of file-related functionality and enhances portability across different file systems.
+VFS provides a standardized interface for operations like file creation, deletion, opening, reading, and writing. It also handles directory operations, such as creating, removing, and listing directories. 
 
 ## Ext2 File System
 
