@@ -69,9 +69,62 @@ To get started with the xv6-ext2 project, follow these steps:
    
 5. **Contribute**: Explore the project code, understand the implementation details, and contribute to the project by fixing bugs or adding new features.
 
+## Project Implementation
 
+1. **Creating an ext2 image using mkfs**
 
+```bash
+ext2.img:
+	dd if=/dev/zero of=ext2.img count=20000
+	mkfs.ext2 -b 1024 ext2.img
+```
 
+2. **Created a /mnt directory**
 
+We will be mounting our ext2 image virtually on `/mnt` directory. Every recursive call reaching `/mnt` will be redirected to the ext2 FS functions.
 
+3. **Added disk driver code**
 
+Added disk driver code to detect ext2 image disk.
+
+4. **Implemented VFS**
+
+- Initially added vfs support for xv6 file system
+
+```c
+struct inode_operations {
+	int             (*dirlink)(struct inode*, char*, uint);
+	struct inode*   (*dirlookup)(struct inode*, char*, uint*);
+	struct inode*   (*ialloc)(uint, short);
+	void            (*iinit)(int dev);
+	void            (*ilock)(struct inode*);
+	void            (*iput)(struct inode*);
+	void            (*iunlock)(struct inode*);
+	void            (*iunlockput)(struct inode*);
+	void            (*iupdate)(struct inode*);
+	int             (*readi)(struct inode*, char*, uint, uint);
+	void            (*stati)(struct inode*, struct stat*);
+	int             (*writei)(struct inode*, char*, uint, uint);
+};
+```
+```diff
+struct inode {
+  uint dev;           // Device number
+  uint inum;          // Inode number
+  int ref;            // Reference count
+  struct sleeplock lock; // protects everything below here
+  int valid;          // inode has been read from disk?
++ struct inode_operations *iops; // pointer to inode_operations
+
+  short type;         // copy of disk inode
+  short major;
+  short minor;
+  short nlink;
+  uint size;
+  void *addrs;
+};
+```
+
+5. **Implemented ext2 functions**
+
+Added ext2 file system manipulating functions
